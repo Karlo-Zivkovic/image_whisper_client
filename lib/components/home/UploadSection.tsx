@@ -8,27 +8,41 @@ import { Input } from "@/components/ui/input";
 import { Upload } from "lucide-react";
 import Image from "next/image";
 import { useImageUpload } from "@/lib/hooks/useImageUpload";
+import { useDragAndDrop } from "@/lib/hooks/useDragAndDrop";
 import { toast } from "sonner";
 
 export default function UploadSection() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { uploadImage, isUploading: isUploadingToSupabase } = useImageUpload();
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setIsUploading(true);
-      const reader = new FileReader();
-      reader.onload = () => {
-        setSelectedImage(reader.result as string);
-        setIsUploading(false);
-      };
-      reader.readAsDataURL(file);
+  const handleFileProcessed = (file: File) => {
+    if (selectedImage) {
+      toast.info(
+        "Only one image is supported. Previous image has been replaced."
+      );
     }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSelectedImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
+
+  const {
+    isDragging,
+    isUploading,
+    dropAreaRef,
+    fileInputRef,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handleFileChange,
+  } = useDragAndDrop({
+    onFileProcessed: handleFileProcessed,
+  });
 
   const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setPrompt(e.target.value);
@@ -111,20 +125,21 @@ export default function UploadSection() {
           it
         </p>
 
-        <Card className="p-6 md:p-8 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <Card className="p-6 md:p-8 mb-8 h-[597px] flex flex-col">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 flex-1">
             {/* Image Upload Section */}
             <div className="flex flex-col space-y-4">
               <div className="text-lg font-medium mb-2">Upload Your Image</div>
 
               {selectedImage ? (
-                <div className="relative">
+                <div className="relative flex-1 flex items-center">
                   <Image
                     src={selectedImage}
                     alt="Selected"
-                    className="w-full aspect-square object-cover rounded-lg border-2 border-primary/30"
+                    className="w-full rounded-lg border-2 border-primary/30"
                     width={500}
                     height={500}
+                    style={{ objectFit: "contain", maxHeight: "400px" }}
                   />
                   <Button
                     variant="outline"
@@ -136,9 +151,27 @@ export default function UploadSection() {
                   </Button>
                 </div>
               ) : (
-                <label className="flex flex-col items-center justify-center w-full aspect-square rounded-lg border-2 border-dashed border-primary/30 hover:border-primary/50 cursor-pointer bg-secondary/10 transition-colors">
+                <label
+                  ref={dropAreaRef}
+                  className={`flex flex-col items-center justify-center w-full flex-1 rounded-lg border-2 border-dashed 
+                    ${
+                      isDragging
+                        ? "border-primary bg-primary/10 scale-[1.02] transition-all duration-150"
+                        : "border-primary/30 hover:border-primary/50 bg-secondary/10"
+                    } 
+                    cursor-pointer transition-colors`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Upload className="w-10 h-10 mb-3 text-muted-foreground" />
+                    <Upload
+                      className={`w-10 h-10 mb-3 ${
+                        isDragging
+                          ? "text-primary animate-bounce"
+                          : "text-muted-foreground"
+                      }`}
+                    />
                     <p className="mb-2 text-sm text-muted-foreground">
                       <span className="font-semibold">Click to upload</span> or
                       drag and drop
@@ -146,31 +179,45 @@ export default function UploadSection() {
                     <p className="text-xs text-muted-foreground">
                       PNG, JPG or WEBP (MAX. 10MB)
                     </p>
+                    <p className="mt-2 text-xs text-primary">
+                      You can also paste from clipboard (Ctrl+V)
+                    </p>
                   </div>
                   <Input
+                    ref={fileInputRef}
                     type="file"
                     className="hidden"
-                    onChange={handleImageChange}
+                    onChange={handleFileChange}
                     accept="image/png, image/jpeg, image/webp"
                   />
                 </label>
               )}
+
+              {/* {isDragging && !selectedImage && (
+                <div className="fixed inset-0 pointer-events-none bg-primary/5 z-10 flex items-center justify-center">
+                  <div className="text-xl font-medium text-primary bg-background/80 p-4 rounded-lg shadow-lg">
+                    Drop your image here
+                  </div>
+                </div>
+              )} */}
             </div>
 
             {/* Prompt Section */}
-            <div className="flex flex-col space-y-4">
+            <div className="flex flex-col space-y-4 flex-1">
               <div className="text-lg font-medium mb-2">
                 Describe Your Vision
               </div>
-              <Textarea
-                placeholder="Tell us what you want the AI to create based on your image... For example: Transform this into a cyberpunk scene or Make this look like a watercolor painting."
-                className="flex-1 min-h-[200px] resize-none"
-                value={prompt}
-                onChange={handlePromptChange}
-              />
-              <div className="text-xs text-muted-foreground">
-                Be specific and creative for the best results. The more details
-                you provide, the better.
+              <div className="flex flex-col flex-1">
+                <Textarea
+                  placeholder="Tell us what you want the AI to create based on your image... For example: Transform this into a cyberpunk scene or Make this look like a watercolor painting."
+                  className="flex-1 min-h-[300px] resize-none"
+                  value={prompt}
+                  onChange={handlePromptChange}
+                />
+                <div className="text-xs text-muted-foreground mt-2">
+                  Be specific and creative for the best results. The more
+                  details you provide, the better.
+                </div>
               </div>
             </div>
           </div>
