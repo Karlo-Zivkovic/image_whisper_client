@@ -7,11 +7,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Upload } from "lucide-react";
 import Image from "next/image";
+import { useImageUpload } from "@/lib/hooks/useImageUpload";
+import { toast } from "sonner";
 
 export default function UploadSection() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const { uploadImage, isUploading: isUploadingToSupabase } = useImageUpload();
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -30,11 +34,67 @@ export default function UploadSection() {
     setPrompt(e.target.value);
   };
 
-  const handleSubmit = () => {
-    // This is where we'll eventually handle the submission and redirect to payment
-    console.log("Image and prompt submitted:", { selectedImage, prompt });
-    // For now, we'll just show an alert
-    alert("This would typically take you to the payment page");
+  const handleSubmit = async () => {
+    try {
+      setIsLoading(true);
+
+      if (!selectedImage) {
+        throw new Error("No image selected");
+      }
+
+      // Upload image to Supabase first
+      const {
+        url: imageUrl,
+        path: imagePath,
+        error: uploadError,
+      } = await uploadImage(selectedImage);
+
+      if (uploadError) {
+        throw new Error(`Failed to upload image: ${uploadError.message}`);
+      }
+
+      if (!imageUrl || !imagePath) {
+        throw new Error("Failed to get image URL from Supabase");
+      }
+
+      // Extract image ID from the path
+      const imageId = imagePath.split("/").pop()?.split(".")[0] || "";
+
+      // Call our API to create a checkout session
+      const response = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          imageId,
+          imagePath,
+          imageUrl,
+          prompt,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      // Redirect to the Stripe Checkout URL
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No checkout URL returned");
+      }
+    } catch (error) {
+      console.error("Error creating checkout session:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "There was an error processing your request"
+      );
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -63,6 +123,8 @@ export default function UploadSection() {
                     src={selectedImage}
                     alt="Selected"
                     className="w-full aspect-square object-cover rounded-lg border-2 border-primary/30"
+                    width={500}
+                    height={500}
                   />
                   <Button
                     variant="outline"
@@ -118,10 +180,22 @@ export default function UploadSection() {
             <Button
               size="lg"
               className="px-8 rounded-full"
-              disabled={!selectedImage || !prompt.trim() || isUploading}
+              disabled={
+                !selectedImage ||
+                !prompt.trim() ||
+                isUploading ||
+                isLoading ||
+                isUploadingToSupabase
+              }
               onClick={handleSubmit}
             >
-              {isUploading ? "Uploading..." : "Transform My Image"}
+              {isUploading
+                ? "Uploading..."
+                : isUploadingToSupabase
+                ? "Uploading to Cloud..."
+                : isLoading
+                ? "Processing..."
+                : "Transform My Image"}
             </Button>
           </div>
         </Card>
