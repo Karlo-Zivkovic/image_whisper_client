@@ -7,122 +7,120 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2025-04-30.basil", // Use the latest API version available in the library
 });
 
-export async function POST(request: Request) {
-  try {
-    // Extract data from the request
-    const body = await request.json();
-    const { imageId, imagePath, imageUrl, prompt } = body;
+// Type definitions
+interface CheckoutRequestData {
+  imageId: string;
+  imagePath: string;
+  imageUrl: string;
+  prompt: string;
+}
 
-    // Get the origin for success/cancel URLs
-    const origin = request.headers.get("origin") || "http://localhost:3000";
+interface MockWebhookResponse {
+  error?: string;
+  details?: string;
+  received?: boolean;
+  success?: boolean;
+  userId?: string;
+}
 
-    // For development, optionally bypass Stripe
-    if (process.env.NEXT_PUBLIC_BYPASS_STRIPE === "true") {
-      return await bypassStripe(origin, imageId, imagePath, imageUrl, prompt);
-    }
+/**
+ * Create a Stripe checkout session
+ */
+async function createStripeCheckoutSession(
+  origin: string,
+  data: CheckoutRequestData
+): Promise<Stripe.Checkout.Session> {
+  const { imageId, imagePath, imageUrl, prompt } = data;
 
-    // Create a Stripe Checkout Session
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: "AI Image Transformation",
-              description:
-                prompt.substring(0, 100) + (prompt.length > 100 ? "..." : ""),
-              images: imageUrl ? [imageUrl] : undefined, // Show the image in Stripe Checkout
-              metadata: {
-                imageId,
-                imagePath,
-              },
-            },
-            unit_amount: 100, // $1.00 in cents
-          },
-          quantity: 1,
-        },
-      ],
-      mode: "payment",
-      success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}`,
-      metadata: {
-        imageId,
-        imagePath,
-        imageUrl,
-        prompt: prompt.substring(0, 500), // Limited to 500 chars for metadata
-      },
-    });
-
-    // Return the session URL to redirect to
-    return NextResponse.json({
-      url: session.url,
-    });
-  } catch (error) {
-    const err = error as Error;
-    console.error("Error creating checkout session:", err);
-    console.error("Stack trace:", err.stack);
-
-    return NextResponse.json(
+  return await stripe.checkout.sessions.create({
+    payment_method_types: ["card"],
+    line_items: [
       {
-        error: "Error creating checkout session",
-        message: err.message,
-        stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "AI Image Transformation",
+            description:
+              prompt.substring(0, 100) + (prompt.length > 100 ? "..." : ""),
+            images: imageUrl ? [imageUrl] : undefined, // Show the image in Stripe Checkout
+            metadata: {
+              imageId,
+              imagePath,
+            },
+          },
+          unit_amount: 100, // $1.00 in cents
+        },
+        quantity: 1,
       },
-      { status: 500 }
-    );
-  }
+    ],
+    mode: "payment",
+    success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}`,
+    metadata: {
+      imageId,
+      imagePath,
+      imageUrl,
+      prompt: prompt.substring(0, 500), // Limited to 500 chars for metadata
+    },
+  });
 }
 
-export async function GET() {
-  return NextResponse.json({ message: "Hello, world!" });
+/**
+ * Call the webhook endpoint directly for development mode
+ */
+async function callDevelopmentWebhook(
+  origin: string,
+  mockSessionId: string,
+  data: CheckoutRequestData
+): Promise<Response> {
+  const { imageId, imagePath, imageUrl, prompt } = data;
+
+  return await fetch(`${origin}/api/webhook`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-development-mode": "true",
+    },
+    body: JSON.stringify({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: mockSessionId,
+          payment_status: "paid",
+          metadata: {
+            imageId,
+            imagePath,
+            imageUrl,
+            prompt,
+          },
+        },
+      },
+    }),
+  });
 }
 
+/**
+ * Handle development mode bypass of Stripe
+ */
 async function bypassStripe(
   origin: string,
-  imageId: string,
-  imagePath: string,
-  imageUrl: string,
-  prompt: string
-) {
+  data: CheckoutRequestData
+): Promise<NextResponse> {
   console.log("Bypassing Stripe in development mode");
 
   // Create a "fake" session ID
   const mockSessionId = `dev_session_${Date.now()}`;
 
-  // You might want to call your webhook handler directly here
-  // to simulate the webhook event
   try {
-    const response = await fetch(`${origin}/api/webhook`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // Add a special header to indicate this is a development call
-        "x-development-mode": "true",
-      },
-      body: JSON.stringify({
-        type: "checkout.session.completed",
-        data: {
-          object: {
-            id: mockSessionId,
-            payment_status: "paid",
-            metadata: {
-              imageId,
-              imagePath,
-              imageUrl,
-              prompt,
-            },
-          },
-        },
-      }),
-    });
+    // Call the webhook handler directly to simulate the webhook event
+    const response = await callDevelopmentWebhook(origin, mockSessionId, data);
 
     // Check if webhook call was successful
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = (await response.json()) as MockWebhookResponse;
       console.error("Webhook returned an error:", errorData);
 
-      // If in development, we might want to throw this error to stop the process
+      // If in development, throw this error to stop the process
       if (process.env.NODE_ENV === "development") {
         throw new Error(`Webhook error: ${JSON.stringify(errorData)}`);
       }
@@ -130,7 +128,8 @@ async function bypassStripe(
     }
   } catch (webhookError) {
     console.error("Error calling development webhook:", webhookError);
-    // In development, we might want to stop and alert the developer
+
+    // In development, stop and alert the developer
     if (process.env.NODE_ENV === "development") {
       return NextResponse.json(
         {
@@ -147,4 +146,63 @@ async function bypassStripe(
   return NextResponse.json({
     url: `${origin}/payment-success?session_id=${mockSessionId}`,
   });
+}
+
+/**
+ * Handle error responses
+ */
+function handleError(error: unknown): NextResponse {
+  const err = error as Error;
+  console.error("Error creating checkout session:", err);
+  console.error("Stack trace:", err.stack);
+
+  return NextResponse.json(
+    {
+      error: "Error creating checkout session",
+      message: err.message,
+      stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+    },
+    { status: 500 }
+  );
+}
+
+/**
+ * Main POST handler for creating checkout sessions
+ */
+export async function POST(request: Request): Promise<NextResponse> {
+  try {
+    // Extract data from the request
+    const body = await request.json();
+    const requestData: CheckoutRequestData = {
+      imageId: body.imageId,
+      imagePath: body.imagePath,
+      imageUrl: body.imageUrl,
+      prompt: body.prompt,
+    };
+
+    // Get the origin for success/cancel URLs
+    const origin = request.headers.get("origin") || "http://localhost:3000";
+
+    // For development, optionally bypass Stripe
+    if (process.env.NEXT_PUBLIC_BYPASS_STRIPE === "true") {
+      return await bypassStripe(origin, requestData);
+    }
+
+    // Create a Stripe Checkout Session
+    const session = await createStripeCheckoutSession(origin, requestData);
+
+    // Return the session URL to redirect to
+    return NextResponse.json({
+      url: session.url,
+    });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+/**
+ * Simple GET handler
+ */
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json({ message: "Hello, world!" });
 }

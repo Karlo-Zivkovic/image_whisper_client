@@ -10,6 +10,14 @@ import { supabase } from "@/lib/supabase/supabase";
 
 type PaymentStatus = "loading" | "success" | "error";
 
+interface SessionData {
+  userId: string;
+  session: {
+    access_token: string;
+    refresh_token: string;
+  };
+}
+
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
@@ -17,8 +25,69 @@ export default function PaymentSuccessPage() {
   const [error, setError] = useState<string | null>(null);
   const [isInitializingUser, setIsInitializingUser] = useState(true);
 
+  /**
+   * Fetches the user session data from the API
+   */
+  const fetchSessionUser = async (
+    sessionId: string
+  ): Promise<SessionData | null> => {
+    const userResponse = await fetch(
+      `/api/auth/get-session-user?session_id=${sessionId}`
+    );
+
+    if (!userResponse.ok) {
+      console.warn("Could not retrieve session user, but continuing anyway");
+      return null;
+    }
+
+    return await userResponse.json();
+  };
+
+  /**
+   * Sets the user session in Supabase
+   */
+  const setUserSession = async (userData: SessionData): Promise<boolean> => {
+    if (!userData.userId || !userData.session) {
+      console.warn("No valid session data found");
+      return false;
+    }
+
+    const { error: signInError } = await supabase.auth.setSession({
+      access_token: userData.session.access_token,
+      refresh_token: userData.session.refresh_token,
+    });
+
+    if (signInError) {
+      console.error("Error setting session:", signInError);
+      return false;
+    }
+
+    console.log("Successfully set session for user");
+    return true;
+  };
+
+  /**
+   * Handles the initialization of the user after payment
+   */
+  const initializeUser = async (sessionId: string): Promise<void> => {
+    try {
+      // Get the user for this session
+      const userData = await fetchSessionUser(sessionId);
+
+      // If we have user data, set the session
+      if (userData) {
+        await setUserSession(userData);
+      }
+    } catch (userError) {
+      console.error("Error initializing user:", userError);
+    } finally {
+      setIsInitializingUser(false);
+    }
+  };
+
   // Check if the payment is successful and initialize the user
   useEffect(() => {
+    // Handle missing session ID
     if (!sessionId) {
       setStatus("error");
       setError("No session ID found. Something went wrong.");
@@ -26,56 +95,22 @@ export default function PaymentSuccessPage() {
       return;
     }
 
-    const checkPaymentAndInitUser = async () => {
+    const processPayment = async () => {
       try {
-        // Payment is successful, now get the associated user
+        // Assume payment is successful since we've reached this page
         setStatus("success");
 
-        try {
-          // Get the user for this session
-          const userResponse = await fetch(
-            `/api/auth/get-session-user?session_id=${sessionId}`
-          );
-
-          if (!userResponse.ok) {
-            console.warn(
-              "Could not retrieve session user, but continuing anyway"
-            );
-            setIsInitializingUser(false);
-            return;
-          }
-
-          const userData = await userResponse.json();
-
-          if (userData.userId && userData.session) {
-            // Set the session for the user
-            const { error: signInError } = await supabase.auth.setSession({
-              access_token: userData.session.access_token,
-              refresh_token: userData.session.refresh_token,
-            });
-
-            if (signInError) {
-              console.error("Error setting session:", signInError);
-            } else {
-              console.log("Successfully set session for user");
-            }
-          } else {
-            console.warn("No valid session data found");
-          }
-        } catch (userError) {
-          console.error("Error initializing user:", userError);
-        } finally {
-          setIsInitializingUser(false);
-        }
+        // Initialize the user
+        await initializeUser(sessionId);
       } catch (err) {
-        console.error("Error checking payment status:", err);
-        // Fallback to success in case of errors
+        console.error("Error processing payment success:", err);
+        // Fallback to success in case of errors since we're already on the success page
         setStatus("success");
         setIsInitializingUser(false);
       }
     };
 
-    checkPaymentAndInitUser();
+    processPayment();
   }, [sessionId]);
 
   return (
