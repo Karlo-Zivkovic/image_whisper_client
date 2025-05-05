@@ -26,19 +26,22 @@ export function useImageUpload(): UseImageUploadReturn {
     try {
       setIsUploading(true);
 
-      // Convert base64 to file
-      const base64Data = base64Image.split(",")[1];
-      const blob = base64ToBlob(base64Data);
+      // Get MIME type and format extension first
+      const { mimeType, extension, base64Data } = extractImageInfo(base64Image);
 
-      const fileExt = getFileExtensionFromBase64(base64Image);
-      const fileName = `${uuidv4()}.${fileExt}`;
+      // Convert base64 to file with proper content type
+      const blob = base64ToBlob(base64Data, mimeType);
+
+      // Always use consistent file extensions that work in browsers
+      const fileName = `${uuidv4()}.${extension}`;
       const filePath = `${folder}/${fileName}`;
 
       // Upload to Supabase Storage
       const { data, error } = await supabase.storage
         .from(bucket)
         .upload(filePath, blob, {
-          contentType: `image/${fileExt}`,
+          contentType: mimeType,
+          upsert: false,
         });
 
       if (error) {
@@ -67,8 +70,43 @@ export function useImageUpload(): UseImageUploadReturn {
     }
   };
 
-  // Helper function to convert base64 to blob
-  const base64ToBlob = (base64Data: string): Blob => {
+  // Helper to extract all image information from base64 string
+  const extractImageInfo = (
+    base64Image: string
+  ): { mimeType: string; extension: string; base64Data: string } => {
+    // Parse the MIME type from the base64 string
+    const match = base64Image.match(/^data:([^;]+);base64,(.*)$/);
+
+    let mimeType = "image/jpeg"; // Default
+    let base64Data = "";
+
+    if (match && match.length >= 3) {
+      mimeType = match[1];
+      base64Data = match[2];
+    } else {
+      // If no match, just use the raw base64 data
+      base64Data = base64Image.split(",")[1] || base64Image;
+    }
+
+    // Map MIME types to browser-friendly extensions
+    const extensionMap: Record<string, string> = {
+      "image/jpeg": "jpeg",
+      "image/jpg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+      "image/bmp": "bmp",
+      "image/svg+xml": "svg",
+    };
+
+    // Get extension from mime type
+    const extension = extensionMap[mimeType] || "jpg";
+
+    return { mimeType, extension, base64Data };
+  };
+
+  // Helper function to convert base64 to blob with proper content type
+  const base64ToBlob = (base64Data: string, contentType: string): Blob => {
     const byteCharacters = atob(base64Data);
     const byteArrays = [];
 
@@ -84,13 +122,8 @@ export function useImageUpload(): UseImageUploadReturn {
       byteArrays.push(byteArray);
     }
 
-    return new Blob(byteArrays);
-  };
-
-  // Helper to extract file extension from base64 string
-  const getFileExtensionFromBase64 = (base64String: string): string => {
-    const match = base64String.match(/^data:image\/(\w+);base64,/);
-    return match ? match[1] : "jpeg"; // Default to jpeg if not found
+    // Create blob with the proper content type
+    return new Blob(byteArrays, { type: contentType });
   };
 
   return {
