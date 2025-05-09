@@ -102,8 +102,8 @@ export default function Home() {
       <Button onClick={handleRefreshSession}>Refresh Session</Button>
       <Button onClick={handleGetSessionMetadata}>Get Session Metadata</Button>
       <Hero />
-      <Features />
       <UploadSection />
+      <Features />
       <Examples />
       <CTA />
       <Footer />

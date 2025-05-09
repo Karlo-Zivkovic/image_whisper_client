@@ -1,14 +1,14 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+// import { Button } from "@/components/ui/button";
 
 export default function Hero() {
-  const scrollToUploadSection = () => {
-    const uploadSection = document.getElementById("upload-section");
-    if (uploadSection) {
-      uploadSection.scrollIntoView({ behavior: "smooth" });
-    }
-  };
+  // const scrollToUploadSection = () => {
+  //   const uploadSection = document.getElementById("upload-section");
+  //   if (uploadSection) {
+  //     uploadSection.scrollIntoView({ behavior: "smooth" });
+  //   }
+  // };
 
   return (
     <section className="flex flex-col items-center justify-center py-20 px-4 md:px-6 lg:px-8 text-center bg-gradient-to-b from-background to-secondary/20">
@@ -20,13 +20,13 @@ export default function Hero() {
           Upload an image, add your prompt, and watch as AI creates something
           extraordinary.
         </p>
-        <Button
+        {/* <Button
           size="lg"
           className="animate-bounce animate-delay-200 rounded-full text-lg px-8 py-6 h-auto"
           onClick={scrollToUploadSection}
         >
           Start Creating Now
-        </Button>
+        </Button> */}
       </div>
     </section>
   );

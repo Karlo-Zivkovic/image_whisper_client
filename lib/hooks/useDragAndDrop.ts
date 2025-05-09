@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
 type UseDragAndDropProps = {
-  onFileProcessed: (file: File) => void;
+  onFileProcessed: (files: File[]) => void;
   fileTypes?: string;
   maxSizeInMB?: number;
 };
@@ -20,26 +20,35 @@ export function useDragAndDrop({
   const processFile = (file: File) => {
     if (!file.type.match(fileTypes)) {
       toast.error(`Only ${fileTypes} files are supported`);
-      return;
+      return null;
     }
 
     if (file.size > maxSizeInMB * 1024 * 1024) {
       toast.error(`File size must be less than ${maxSizeInMB}MB`);
-      return;
+      return null;
     }
 
-    setIsUploading(true);
-    try {
-      onFileProcessed(file);
-    } finally {
-      setIsUploading(false);
-    }
+    return file;
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processFile(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      setIsUploading(true);
+      try {
+        const validFiles: File[] = [];
+        for (let i = 0; i < files.length; i++) {
+          const validFile = processFile(files[i]);
+          if (validFile) {
+            validFiles.push(validFile);
+          }
+        }
+        if (validFiles.length > 0) {
+          onFileProcessed(validFiles);
+        }
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -75,7 +84,21 @@ export function useDragAndDrop({
     setIsDragging(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
+      setIsUploading(true);
+      try {
+        const validFiles: File[] = [];
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+          const validFile = processFile(e.dataTransfer.files[i]);
+          if (validFile) {
+            validFiles.push(validFile);
+          }
+        }
+        if (validFiles.length > 0) {
+          onFileProcessed(validFiles);
+        }
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -120,13 +143,26 @@ export function useDragAndDrop({
     const handlePaste = (e: ClipboardEvent) => {
       if (e.clipboardData) {
         const items = e.clipboardData.items;
+        const validFiles: File[] = [];
+
         for (let i = 0; i < items.length; i++) {
           if (items[i].type.indexOf("image") !== -1) {
             const file = items[i].getAsFile();
             if (file) {
-              processFile(file);
-              break;
+              const validFile = processFile(file);
+              if (validFile) {
+                validFiles.push(validFile);
+              }
             }
+          }
+        }
+
+        if (validFiles.length > 0) {
+          setIsUploading(true);
+          try {
+            onFileProcessed(validFiles);
+          } finally {
+            setIsUploading(false);
           }
         }
       }

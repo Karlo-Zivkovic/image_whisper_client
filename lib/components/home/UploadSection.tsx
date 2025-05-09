@@ -33,22 +33,31 @@ export default function UploadSection() {
   const { uploadImage, isUploading: isUploadingToSupabase } = useImageUpload();
   const { user } = useCurrentUser();
 
-  const handleFileProcessed = (file: File) => {
-    if (selectedImages.length >= MAX_IMAGES) {
+  const handleFileProcessed = (files: File[]) => {
+    // Filter valid files and limit to MAX_IMAGES
+    const validFiles = files.slice(0, MAX_IMAGES - selectedImages.length);
+
+    if (validFiles.length === 0) return;
+
+    if (selectedImages.length + validFiles.length > MAX_IMAGES) {
       toast.warning(
-        `Maximum of ${MAX_IMAGES} images allowed. Please remove an image first.`
+        `Maximum of ${MAX_IMAGES} images allowed. Only adding ${
+          MAX_IMAGES - selectedImages.length
+        } images.`
       );
-      return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setSelectedImages((prev) => [
-        ...prev,
-        { dataUrl: reader.result as string, file },
-      ]);
-    };
-    reader.readAsDataURL(file);
+    // Process each file
+    validFiles.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setSelectedImages((prev) => [
+          ...prev,
+          { dataUrl: reader.result as string, file },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const {
@@ -150,20 +159,20 @@ export default function UploadSection() {
   return (
     <section
       id="upload-section"
-      className="py-16 px-4 md:px-6 lg:px-8 bg-secondary/5"
+      className="py-8 px-4 md:px-6 lg:px-8 bg-secondary/5"
     >
       <div className="max-w-4xl mx-auto">
-        <h2 className="text-3xl font-bold text-center mb-6">
+        <h2 className="text-3xl font-bold text-center mb-4">
           Create Your AI Images
         </h2>
-        <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto">
+        <p className="text-center text-muted-foreground mb-6 max-w-2xl mx-auto">
           Upload up to 3 images and tell us what you want the AI to create based
           on them
         </p>
 
         <Card className="p-6 md:p-8 mb-8 h-auto flex flex-col">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 flex-1">
-            {/* Image Upload Section */}
+          <div className="flex flex-col space-y-6">
+            {/* Image Upload Section - Full Width */}
             <div className="flex flex-col space-y-4">
               <div className="text-lg font-medium mb-2">
                 Upload Your Images (Max {MAX_IMAGES})
@@ -171,7 +180,7 @@ export default function UploadSection() {
 
               {/* Show selected images */}
               {selectedImages.length > 0 && (
-                <div className="grid grid-cols-1 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                   {selectedImages.map((img, index) => (
                     <div
                       key={index}
@@ -182,7 +191,7 @@ export default function UploadSection() {
                         alt={`Selected image ${index + 1}`}
                         width={500}
                         height={300}
-                        className="w-full object-contain h-[150px]"
+                        className="w-full object-contain h-[180px]"
                       />
                       <Button
                         variant="destructive"
@@ -201,7 +210,7 @@ export default function UploadSection() {
               {selectedImages.length < MAX_IMAGES && (
                 <label
                   ref={dropAreaRef}
-                  className={`flex flex-col items-center justify-center w-full min-h-[200px] rounded-lg border-2 border-dashed 
+                  className={`flex flex-col items-center justify-center w-full min-h-[240px] rounded-lg border-2 border-dashed 
                     ${
                       isDragging
                         ? "border-primary bg-primary/10 scale-[1.02] transition-all duration-150"
@@ -232,7 +241,7 @@ export default function UploadSection() {
                     )}
                     <p className="mb-2 text-sm text-muted-foreground">
                       <span className="font-semibold">Click to upload</span> or
-                      drag and drop
+                      drag and drop up to 3 images
                     </p>
                     <p className="text-xs text-muted-foreground">
                       PNG, JPG or WEBP (MAX. 10MB)
@@ -252,26 +261,26 @@ export default function UploadSection() {
                     className="hidden"
                     onChange={handleFileChange}
                     accept="image/png, image/jpeg, image/webp"
+                    multiple
                   />
                 </label>
               )}
             </div>
 
-            {/* Prompt Section */}
-            <div className="flex flex-col space-y-4 flex-1">
-              <div className="text-lg font-medium mb-2">
-                Describe Your Vision
-              </div>
-              <div className="flex flex-col flex-1">
+            {/* Prompt Section - Full Width Below Images */}
+            <div className="flex flex-col space-y-3 w-full mt-2">
+              <div className="text-lg font-medium">Describe Your Vision</div>
+              <div className="flex flex-col">
                 <Textarea
                   placeholder="Tell us what you want the AI to create based on your images... For example: Transform these into cyberpunk scenes or Make these look like watercolor paintings."
-                  className="flex-1 min-h-[300px] resize-none"
+                  className="min-h-[150px] resize-none"
                   value={prompt}
                   onChange={handlePromptChange}
+                  maxLength={500}
                 />
-                <div className="text-xs text-muted-foreground mt-2">
-                  Be specific and creative for the best results. The more
-                  details you provide, the better.
+                <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                  <span>Be specific and creative for the best results.</span>
+                  <span>{prompt.length}/500 characters</span>
                 </div>
               </div>
             </div>
