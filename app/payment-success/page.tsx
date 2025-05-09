@@ -6,124 +6,162 @@ import Link from "next/link";
 import { CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { supabase } from "@/lib/supabase/supabase";
+import { supabase } from "@/lib/utils/supabase/client";
+import { useInsertChat } from "@/lib/hooks/useInsertChat";
+import { useInsertRequest } from "@/lib/hooks/useInsertRequest";
 
-type PaymentStatus = "loading" | "success" | "error";
+type PageStatus = "loading" | "success" | "error";
 
-interface SessionData {
-  userId: string;
-  session: {
-    access_token: string;
-    refresh_token: string;
-  };
+interface SessionMetadata {
+  imageUrl?: string;
+  prompt?: string;
+  imageId?: string;
+  imagePath?: string;
 }
 
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
-  const [status, setStatus] = useState<PaymentStatus>("loading");
+  const passedUserId = searchParams.get("user_id");
+  const [status, setStatus] = useState<PageStatus>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [isInitializingUser, setIsInitializingUser] = useState(true);
+  const insertChat = useInsertChat();
+  const insertRequest = useInsertRequest();
 
   /**
-   * Fetches the user session data from the API
+   * Fetch Stripe session metadata from our API
    */
-  const fetchSessionUser = async (
+  const fetchSessionMetadata = async (
     sessionId: string
-  ): Promise<SessionData | null> => {
-    const userResponse = await fetch(
-      `/api/auth/get-session-user?session_id=${sessionId}`
-    );
-
-    if (!userResponse.ok) {
-      console.warn("Could not retrieve session user, but continuing anyway");
-      return null;
-    }
-
-    return await userResponse.json();
-  };
-
-  /**
-   * Sets the user session in Supabase
-   */
-  const setUserSession = async (userData: SessionData): Promise<boolean> => {
-    if (!userData.userId || !userData.session) {
-      console.warn("No valid session data found");
-      return false;
-    }
-
-    const { error: signInError } = await supabase.auth.setSession({
-      access_token: userData.session.access_token,
-      refresh_token: userData.session.refresh_token,
-    });
-
-    if (signInError) {
-      console.error("Error setting session:", signInError);
-      return false;
-    }
-
-    console.log("Successfully set session for user");
-    return true;
-  };
-
-  /**
-   * Handles the initialization of the user after payment
-   */
-  const initializeUser = async (sessionId: string): Promise<void> => {
+  ): Promise<SessionMetadata> => {
     try {
-      // Get the user for this session
-      const userData = await fetchSessionUser(sessionId);
+      const response = await fetch(
+        `/api/get-session-metadata?session_id=${sessionId}`
+      );
 
-      // If we have user data, set the session
-      if (userData) {
-        await setUserSession(userData);
+      if (!response.ok) {
+        throw new Error("Failed to fetch session metadata");
       }
-    } catch (userError) {
-      console.error("Error initializing user:", userError);
-    } finally {
-      setIsInitializingUser(false);
+
+      const data = await response.json();
+      return data.metadata || {};
+    } catch (error) {
+      console.error("Error fetching session metadata:", error);
+      return {};
     }
   };
 
-  // Check if the payment is successful and initialize the user
+  /**
+   * Create an anonymous user if no user ID was passed
+   */
+  const createAnonymousUserIfNeeded = async (): Promise<string> => {
+    try {
+      // If user_id was passed in URL, use that (assumes session managed by Supabase)
+      if (passedUserId) {
+        console.log("Using passed user ID from URL:", passedUserId);
+        return passedUserId;
+      }
+
+      // Check if there's an existing session first
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session) {
+        console.log("Using existing session user ID");
+        return sessionData.session.user.id;
+      }
+
+      // Create a new anonymous user
+      console.log("Creating new anonymous user");
+      const { data, error } = await supabase.auth.signInAnonymously();
+
+      if (error || !data.user) {
+        console.error("Error creating anonymous user:", error);
+        throw error || new Error("No user returned from signInAnonymously");
+      }
+
+      console.log("Anonymous user created successfully");
+      return data.user.id;
+    } catch (error) {
+      console.error("Error in user authentication:", error);
+      throw error;
+    }
+  };
+
+  /**
+   * Setup user with chat and request records
+   */
+  const setupUserAndRecords = async (metadata: SessionMetadata) => {
+    try {
+      // Make sure we have the required data
+      if (!metadata?.imageUrl || !metadata?.prompt) {
+        console.warn("Missing image URL or prompt in session metadata");
+        // We'll still continue since we're in success page
+      }
+
+      // Create user if needed
+      const userId = await createAnonymousUserIfNeeded();
+
+      // Only create records if we have the necessary data
+      if (metadata?.imageUrl && metadata?.prompt) {
+        // Create chat record
+        const chatData = await insertChat.mutateAsync({
+          user_id: userId,
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        });
+
+        // Create request record
+        await insertRequest.mutateAsync({
+          chat_id: chatData.id,
+          image_url: metadata.imageUrl,
+          prompt: metadata.prompt,
+        });
+      } else {
+        console.log(
+          "User created but no records were created due to missing metadata"
+        );
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error setting up user after payment:", error);
+      // Don't throw - we'll show success anyway
+      return false;
+    }
+  };
+
   useEffect(() => {
     // Handle missing session ID
     if (!sessionId) {
       setStatus("error");
       setError("No session ID found. Something went wrong.");
-      setIsInitializingUser(false);
       return;
     }
 
-    const processPayment = async () => {
+    const processSuccess = async () => {
       try {
-        // Assume payment is successful since we've reached this page
-        setStatus("success");
+        // Fetch the session metadata first
+        const metadata = await fetchSessionMetadata(sessionId);
 
-        // Initialize the user
-        await initializeUser(sessionId);
+        // Setup user and records using the metadata
+        await setupUserAndRecords(metadata);
+        setStatus("success");
       } catch (err) {
         console.error("Error processing payment success:", err);
-        // Fallback to success in case of errors since we're already on the success page
+        // Since we're on the success page, we'll still show success
         setStatus("success");
-        setIsInitializingUser(false);
       }
     };
 
-    processPayment();
+    processSuccess();
   }, [sessionId]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-secondary/5 p-4">
       <Card className="max-w-lg w-full p-8">
-        {status === "loading" || isInitializingUser ? (
+        {status === "loading" ? (
           <div className="text-center py-8">
             <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-xl font-medium">
-              {status === "loading"
-                ? "Verifying your payment..."
-                : "Setting up your account..."}
-            </p>
+            <p className="text-xl font-medium">Setting up your account...</p>
           </div>
         ) : status === "error" ? (
           <div className="text-center py-8">

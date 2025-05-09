@@ -57,6 +57,7 @@ export type Database = {
       payment_sessions: {
         Row: {
           created_at: string
+          device_id: string | null
           expires_at: string | null
           id: number
           refresh_token: string | null
@@ -66,6 +67,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          device_id?: string | null
           expires_at?: string | null
           id?: number
           refresh_token?: string | null
@@ -75,6 +77,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          device_id?: string | null
           expires_at?: string | null
           id?: number
           refresh_token?: string | null

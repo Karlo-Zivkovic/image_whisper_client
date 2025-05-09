@@ -2,7 +2,6 @@
 import { Button } from "@/components/ui/button";
 
 export default function CTA() {
-  console.log(process.env.SUPABASE_SERVICE_ROLE_KEY);
   const scrollToUploadSection = () => {
     const uploadSection = document.getElementById("upload-section");
     if (uploadSection) {

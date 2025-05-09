@@ -10,12 +10,14 @@ import Image from "next/image";
 import { useImageUpload } from "@/lib/hooks/useImageUpload";
 import { useDragAndDrop } from "@/lib/hooks/useDragAndDrop";
 import { toast } from "sonner";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 
 export default function UploadSection() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { uploadImage, isUploading: isUploadingToSupabase } = useImageUpload();
+  const { user } = useCurrentUser();
 
   const handleFileProcessed = (file: File) => {
     if (selectedImage) {
@@ -85,6 +87,7 @@ export default function UploadSection() {
           imagePath,
           imageUrl,
           prompt,
+          userId: user?.id || null,
         }),
       });
 

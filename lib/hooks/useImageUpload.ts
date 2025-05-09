@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/lib/supabase/supabase";
+import { supabase } from "@/lib/utils/supabase/client";
 import { v4 as uuidv4 } from "uuid";
 
 interface UseImageUploadReturn {

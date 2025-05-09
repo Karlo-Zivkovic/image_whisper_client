@@ -13,6 +13,7 @@ interface CheckoutRequestData {
   imagePath: string;
   imageUrl: string;
   prompt: string;
+  userId?: string; // Optional userId if already created on client
 }
 
 interface MockWebhookResponse {
@@ -20,7 +21,6 @@ interface MockWebhookResponse {
   details?: string;
   received?: boolean;
   success?: boolean;
-  userId?: string;
 }
 
 /**
@@ -30,7 +30,7 @@ async function createStripeCheckoutSession(
   origin: string,
   data: CheckoutRequestData
 ): Promise<Stripe.Checkout.Session> {
-  const { imageId, imagePath, imageUrl, prompt } = data;
+  const { imageId, imagePath, imageUrl, prompt, userId } = data;
 
   return await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
@@ -54,13 +54,16 @@ async function createStripeCheckoutSession(
       },
     ],
     mode: "payment",
-    success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}${
+      userId ? `&user_id=${userId}` : ""
+    }`,
     cancel_url: `${origin}`,
     metadata: {
       imageId,
       imagePath,
       imageUrl,
       prompt: prompt.substring(0, 500), // Limited to 500 chars for metadata
+      userId: userId || null,
     },
   });
 }
@@ -73,7 +76,7 @@ async function callDevelopmentWebhook(
   mockSessionId: string,
   data: CheckoutRequestData
 ): Promise<Response> {
-  const { imageId, imagePath, imageUrl, prompt } = data;
+  const { imageId, imagePath, imageUrl, prompt, userId } = data;
 
   return await fetch(`${origin}/api/webhook`, {
     method: "POST",
@@ -92,6 +95,7 @@ async function callDevelopmentWebhook(
             imagePath,
             imageUrl,
             prompt,
+            userId: userId || null,
           },
         },
       },
@@ -110,6 +114,7 @@ async function bypassStripe(
 
   // Create a "fake" session ID
   const mockSessionId = `dev_session_${Date.now()}`;
+  const userId = data.userId || "";
 
   try {
     // Call the webhook handler directly to simulate the webhook event
@@ -142,9 +147,11 @@ async function bypassStripe(
     // In production, continue anyway since this is just development mode
   }
 
-  // Return success URL with mock session ID
+  // Return success URL with mock session ID and userId if present
   return NextResponse.json({
-    url: `${origin}/payment-success?session_id=${mockSessionId}`,
+    url: `${origin}/payment-success?session_id=${mockSessionId}${
+      userId ? `&user_id=${userId}` : ""
+    }`,
   });
 }
 
@@ -178,6 +185,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       imagePath: body.imagePath,
       imageUrl: body.imageUrl,
       prompt: body.prompt,
+      userId: body.userId, // Get userId if provided by client
     };
 
     // Get the origin for success/cancel URLs
