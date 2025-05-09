@@ -54,59 +54,26 @@ export type Database = {
         }
         Relationships: []
       }
-      payment_sessions: {
-        Row: {
-          created_at: string
-          device_id: string | null
-          expires_at: string | null
-          id: number
-          refresh_token: string | null
-          session_token: string | null
-          stripe_sessions_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          device_id?: string | null
-          expires_at?: string | null
-          id?: number
-          refresh_token?: string | null
-          session_token?: string | null
-          stripe_sessions_id: string
-          user_id?: string
-        }
-        Update: {
-          created_at?: string
-          device_id?: string | null
-          expires_at?: string | null
-          id?: number
-          refresh_token?: string | null
-          session_token?: string | null
-          stripe_sessions_id?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       requests: {
         Row: {
           chat_id: number
           created_at: string
           id: number
-          image_url: string
+          image_url: string[]
           prompt: string
         }
         Insert: {
           chat_id: number
           created_at?: string
           id?: number
-          image_url: string
+          image_url: string[]
           prompt: string
         }
         Update: {
           chat_id?: number
           created_at?: string
           id?: number
-          image_url?: string
+          image_url?: string[]
           prompt?: string
         }
         Relationships: [

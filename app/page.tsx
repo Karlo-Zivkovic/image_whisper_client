@@ -21,7 +21,8 @@ interface SessionMetadata {
 export default function Home() {
   const handleGetSessionMetadata = async (): Promise<SessionMetadata> => {
     const sessionId =
-      "cs_test_a17c99hjfOgqrQzbyx7td6skJA67J7HDPtwd8aybztL24k0tkra4q20C5Q";
+      "cs_test_a118pE7EfO1n5FNqN9ApekjDUZqRRYORdjesC3dmojpEqsgBOnAW5hlHC0";
+
     try {
       const response = await fetch(
         `/api/get-session-metadata?session_id=${sessionId}`

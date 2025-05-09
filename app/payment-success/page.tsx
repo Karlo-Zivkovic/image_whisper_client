@@ -13,10 +13,8 @@ import { useInsertRequest } from "@/lib/hooks/useInsertRequest";
 type PageStatus = "loading" | "success" | "error";
 
 interface SessionMetadata {
-  imageUrl?: string;
+  imagesUrl?: string[];
   prompt?: string;
-  imageId?: string;
-  imagePath?: string;
   userId?: string;
 }
 
@@ -44,6 +42,7 @@ export default function PaymentSuccessPage() {
       }
 
       const data = await response.json();
+
       return data.metadata || {};
     } catch (error) {
       console.error("Error fetching session metadata:", error);
@@ -91,8 +90,8 @@ export default function PaymentSuccessPage() {
   const setupUserAndRecords = async (metadata: SessionMetadata) => {
     try {
       // Make sure we have the required data
-      if (!metadata?.imageUrl || !metadata?.prompt) {
-        console.warn("Missing image URL or prompt in session metadata");
+      if (!metadata?.imagesUrl || !metadata?.prompt) {
+        console.warn("Missing images URL or prompt in session metadata");
         // We'll still continue since we're in success page
       }
 
@@ -100,7 +99,12 @@ export default function PaymentSuccessPage() {
       const userId = await createAnonymousUserIfNeeded(metadata.userId || null);
 
       // Only create records if we have the necessary data
-      if (metadata?.imageUrl && metadata?.prompt) {
+      if (
+        metadata.imagesUrl &&
+        Array.isArray(metadata.imagesUrl) &&
+        metadata.imagesUrl.length > 0 &&
+        metadata.prompt
+      ) {
         // Create chat record
         const chatData = await insertChat.mutateAsync({
           user_id: userId,
@@ -111,7 +115,7 @@ export default function PaymentSuccessPage() {
         // Create request record
         await insertRequest.mutateAsync({
           chat_id: chatData.id,
-          image_url: metadata.imageUrl,
+          image_url: metadata.imagesUrl,
           prompt: metadata.prompt,
         });
       } else {

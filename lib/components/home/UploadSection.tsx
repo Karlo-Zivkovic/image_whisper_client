@@ -5,30 +5,48 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Upload } from "lucide-react";
+import { Upload, X, Plus } from "lucide-react";
 import Image from "next/image";
 import { useImageUpload } from "@/lib/hooks/useImageUpload";
 import { useDragAndDrop } from "@/lib/hooks/useDragAndDrop";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 
+// Define interfaces for image data
+interface UploadedImage {
+  dataUrl: string;
+  file?: File;
+}
+
+interface UploadedImageWithMeta extends UploadedImage {
+  imageUrl?: string;
+}
+
+const MAX_IMAGES = 3;
+
 export default function UploadSection() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<UploadedImageWithMeta[]>(
+    []
+  );
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { uploadImage, isUploading: isUploadingToSupabase } = useImageUpload();
   const { user } = useCurrentUser();
 
   const handleFileProcessed = (file: File) => {
-    if (selectedImage) {
-      toast.info(
-        "Only one image is supported. Previous image has been replaced."
+    if (selectedImages.length >= MAX_IMAGES) {
+      toast.warning(
+        `Maximum of ${MAX_IMAGES} images allowed. Please remove an image first.`
       );
+      return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
-      setSelectedImage(reader.result as string);
+      setSelectedImages((prev) => [
+        ...prev,
+        { dataUrl: reader.result as string, file },
+      ]);
     };
     reader.readAsDataURL(file);
   };
@@ -50,31 +68,46 @@ export default function UploadSection() {
     setPrompt(e.target.value);
   };
 
+  const removeImage = (index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async () => {
     try {
       setIsLoading(true);
 
-      if (!selectedImage) {
-        throw new Error("No image selected");
+      if (selectedImages.length === 0) {
+        throw new Error("No images selected");
       }
 
-      // Upload image to Supabase first
-      const {
-        url: imageUrl,
-        path: imagePath,
-        error: uploadError,
-      } = await uploadImage(selectedImage);
+      // Upload all images to Supabase
+      const uploadPromises = selectedImages.map(async (img) => {
+        if (!img.dataUrl) return null;
 
-      if (uploadError) {
-        throw new Error(`Failed to upload image: ${uploadError.message}`);
+        const { url, error } = await uploadImage(img.dataUrl);
+
+        if (error) {
+          throw new Error(`Failed to upload image: ${error.message}`);
+        }
+
+        if (!url) {
+          throw new Error("Failed to get image URL from Supabase");
+        }
+
+        return {
+          ...img,
+          imageUrl: url,
+        };
+      });
+
+      const uploadedImages = await Promise.all(uploadPromises);
+      const validUploadedImages = uploadedImages.filter(
+        Boolean
+      ) as UploadedImageWithMeta[];
+
+      if (validUploadedImages.length === 0) {
+        throw new Error("Failed to upload any images");
       }
-
-      if (!imageUrl || !imagePath) {
-        throw new Error("Failed to get image URL from Supabase");
-      }
-
-      // Extract image ID from the path
-      const imageId = imagePath.split("/").pop()?.split(".")[0] || "";
 
       // Call our API to create a checkout session
       const response = await fetch("/api/create-checkout-session", {
@@ -83,9 +116,9 @@ export default function UploadSection() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          imageId,
-          imagePath,
-          imageUrl,
+          images: validUploadedImages.map((img) => ({
+            imageUrl: img.imageUrl,
+          })),
           prompt,
           userId: user?.id || null,
         }),
@@ -121,42 +154,54 @@ export default function UploadSection() {
     >
       <div className="max-w-4xl mx-auto">
         <h2 className="text-3xl font-bold text-center mb-6">
-          Create Your AI Image
+          Create Your AI Images
         </h2>
         <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto">
-          Upload your image and tell us what you want the AI to create based on
-          it
+          Upload up to 3 images and tell us what you want the AI to create based
+          on them
         </p>
 
-        <Card className="p-6 md:p-8 mb-8 h-[597px] flex flex-col">
+        <Card className="p-6 md:p-8 mb-8 h-auto flex flex-col">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 flex-1">
             {/* Image Upload Section */}
             <div className="flex flex-col space-y-4">
-              <div className="text-lg font-medium mb-2">Upload Your Image</div>
+              <div className="text-lg font-medium mb-2">
+                Upload Your Images (Max {MAX_IMAGES})
+              </div>
 
-              {selectedImage ? (
-                <div className="relative flex-1 flex items-center">
-                  <Image
-                    src={selectedImage}
-                    alt="Selected"
-                    className="w-full rounded-lg border-2 border-primary/30"
-                    width={500}
-                    height={500}
-                    style={{ objectFit: "contain", maxHeight: "400px" }}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="absolute bottom-2 right-2 bg-background/80"
-                    onClick={() => setSelectedImage(null)}
-                  >
-                    Change
-                  </Button>
+              {/* Show selected images */}
+              {selectedImages.length > 0 && (
+                <div className="grid grid-cols-1 gap-4 mb-4">
+                  {selectedImages.map((img, index) => (
+                    <div
+                      key={index}
+                      className="relative border border-primary/30 rounded-lg overflow-hidden"
+                    >
+                      <Image
+                        src={img.dataUrl}
+                        alt={`Selected image ${index + 1}`}
+                        width={500}
+                        height={300}
+                        className="w-full object-contain h-[150px]"
+                      />
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 h-8 w-8"
+                        onClick={() => removeImage(index)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
-              ) : (
+              )}
+
+              {/* Show upload area if less than max images */}
+              {selectedImages.length < MAX_IMAGES && (
                 <label
                   ref={dropAreaRef}
-                  className={`flex flex-col items-center justify-center w-full flex-1 rounded-lg border-2 border-dashed 
+                  className={`flex flex-col items-center justify-center w-full min-h-[200px] rounded-lg border-2 border-dashed 
                     ${
                       isDragging
                         ? "border-primary bg-primary/10 scale-[1.02] transition-all duration-150"
@@ -168,13 +213,23 @@ export default function UploadSection() {
                   onDrop={handleDrop}
                 >
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Upload
-                      className={`w-10 h-10 mb-3 ${
-                        isDragging
-                          ? "text-primary animate-bounce"
-                          : "text-muted-foreground"
-                      }`}
-                    />
+                    {selectedImages.length > 0 ? (
+                      <Plus
+                        className={`w-10 h-10 mb-3 ${
+                          isDragging
+                            ? "text-primary animate-bounce"
+                            : "text-muted-foreground"
+                        }`}
+                      />
+                    ) : (
+                      <Upload
+                        className={`w-10 h-10 mb-3 ${
+                          isDragging
+                            ? "text-primary animate-bounce"
+                            : "text-muted-foreground"
+                        }`}
+                      />
+                    )}
                     <p className="mb-2 text-sm text-muted-foreground">
                       <span className="font-semibold">Click to upload</span> or
                       drag and drop
@@ -185,6 +240,11 @@ export default function UploadSection() {
                     <p className="mt-2 text-xs text-primary">
                       You can also paste from clipboard (Ctrl+V)
                     </p>
+                    {selectedImages.length > 0 && (
+                      <p className="mt-2 text-sm font-medium">
+                        {selectedImages.length} of {MAX_IMAGES} images selected
+                      </p>
+                    )}
                   </div>
                   <Input
                     ref={fileInputRef}
@@ -195,14 +255,6 @@ export default function UploadSection() {
                   />
                 </label>
               )}
-
-              {/* {isDragging && !selectedImage && (
-                <div className="fixed inset-0 pointer-events-none bg-primary/5 z-10 flex items-center justify-center">
-                  <div className="text-xl font-medium text-primary bg-background/80 p-4 rounded-lg shadow-lg">
-                    Drop your image here
-                  </div>
-                </div>
-              )} */}
             </div>
 
             {/* Prompt Section */}
@@ -212,7 +264,7 @@ export default function UploadSection() {
               </div>
               <div className="flex flex-col flex-1">
                 <Textarea
-                  placeholder="Tell us what you want the AI to create based on your image... For example: Transform this into a cyberpunk scene or Make this look like a watercolor painting."
+                  placeholder="Tell us what you want the AI to create based on your images... For example: Transform these into cyberpunk scenes or Make these look like watercolor paintings."
                   className="flex-1 min-h-[300px] resize-none"
                   value={prompt}
                   onChange={handlePromptChange}
@@ -231,7 +283,7 @@ export default function UploadSection() {
               size="lg"
               className="px-8 rounded-full"
               disabled={
-                !selectedImage ||
+                selectedImages.length === 0 ||
                 !prompt.trim() ||
                 isUploading ||
                 isLoading ||
@@ -245,18 +297,18 @@ export default function UploadSection() {
                 ? "Uploading to Cloud..."
                 : isLoading
                 ? "Processing..."
-                : "Transform My Image"}
+                : "Transform My Images"}
             </Button>
           </div>
         </Card>
 
         <div className="text-center text-sm text-muted-foreground mt-4">
           <p>
-            After clicking &quot;Transform My Image&quot; you&apos;ll be
+            After clicking &quot;Transform My Images&quot; you&apos;ll be
             directed to a secure payment page.
           </p>
           <p>
-            Your image will be processed immediately after payment is complete.
+            Your images will be processed immediately after payment is complete.
           </p>
         </div>
       </div>

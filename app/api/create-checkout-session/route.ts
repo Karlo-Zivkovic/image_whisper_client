@@ -8,12 +8,14 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
 });
 
 // Type definitions
-interface CheckoutRequestData {
-  imageId: string;
-  imagePath: string;
+interface ImageData {
   imageUrl: string;
+}
+
+interface CheckoutRequestData {
+  images: ImageData[];
   prompt: string;
-  userId?: string; // Optional userId if already created on client
+  userId?: string;
 }
 
 interface MockWebhookResponse {
@@ -24,13 +26,42 @@ interface MockWebhookResponse {
 }
 
 /**
+ * Split images data into chunks that fit within Stripe's 500 character limit
+ */
+function splitImagesForMetadata(images: ImageData[]): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  // Store just the URLs with their index
+  images.forEach((img, index) => {
+    result[`imageUrl_${index}`] = img.imageUrl;
+  });
+
+  // Store the count
+  result.image_count = images.length.toString();
+
+  return result;
+}
+
+/**
  * Create a Stripe checkout session
  */
 async function createStripeCheckoutSession(
   origin: string,
   data: CheckoutRequestData
 ): Promise<Stripe.Checkout.Session> {
-  const { imageId, imagePath, imageUrl, prompt, userId } = data;
+  const { images, prompt, userId } = data;
+
+  // Check if we have valid images
+  if (!images || images.length === 0) {
+    throw new Error("No images provided");
+  }
+
+  // TODO: Handle the price
+  // Create a price for multiple images (charge per image)
+  const unitAmount = 100; // $1.00 in cents per image
+
+  // Split images into metadata-friendly chunks
+  const imagesMetadata = splitImagesForMetadata(images);
 
   return await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
@@ -39,16 +70,17 @@ async function createStripeCheckoutSession(
         price_data: {
           currency: "usd",
           product_data: {
-            name: "AI Image Transformation",
+            name: `AI Image Transformation (${images.length} image${
+              images.length > 1 ? "s" : ""
+            })`,
             description:
               prompt.substring(0, 100) + (prompt.length > 100 ? "..." : ""),
-            images: imageUrl ? [imageUrl] : undefined, // Show the image in Stripe Checkout
+            images: images.map((img) => img.imageUrl),
             metadata: {
-              imageId,
-              imagePath,
+              imageCount: images.length.toString(),
             },
           },
-          unit_amount: 100, // $1.00 in cents
+          unit_amount: unitAmount * images.length, // Charge per image
         },
         quantity: 1,
       },
@@ -57,10 +89,10 @@ async function createStripeCheckoutSession(
     success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}`,
     metadata: {
-      imageId,
-      imagePath,
-      imageUrl,
-      prompt: prompt.substring(0, 500), // Limited to 500 chars for metadata
+      // Add all image data in separate fields
+      ...imagesMetadata,
+      // Add other metadata
+      prompt,
       userId: userId || null,
     },
   });
@@ -74,7 +106,10 @@ async function callDevelopmentWebhook(
   mockSessionId: string,
   data: CheckoutRequestData
 ): Promise<Response> {
-  const { imageId, imagePath, imageUrl, prompt, userId } = data;
+  const { images, prompt, userId } = data;
+
+  // Split images into metadata-friendly chunks
+  const imagesMetadata = splitImagesForMetadata(images);
 
   return await fetch(`${origin}/api/webhook`, {
     method: "POST",
@@ -89,10 +124,8 @@ async function callDevelopmentWebhook(
           id: mockSessionId,
           payment_status: "paid",
           metadata: {
-            imageId,
-            imagePath,
-            imageUrl,
-            prompt,
+            ...imagesMetadata,
+            prompt: prompt.substring(0, 450),
             userId: userId || null,
           },
         },
@@ -178,10 +211,21 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     // Extract data from the request
     const body = await request.json();
+
+    // Validate images array
+    if (
+      !body.images ||
+      !Array.isArray(body.images) ||
+      body.images.length === 0
+    ) {
+      return NextResponse.json(
+        { error: "No images provided or invalid images format" },
+        { status: 400 }
+      );
+    }
+
     const requestData: CheckoutRequestData = {
-      imageId: body.imageId,
-      imagePath: body.imagePath,
-      imageUrl: body.imageUrl,
+      images: body.images,
       prompt: body.prompt,
       userId: body.userId, // Get userId if provided by client
     };
