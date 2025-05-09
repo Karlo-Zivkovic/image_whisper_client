@@ -17,12 +17,12 @@ interface SessionMetadata {
   prompt?: string;
   imageId?: string;
   imagePath?: string;
+  userId?: string;
 }
 
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
-  const passedUserId = searchParams.get("user_id");
   const [status, setStatus] = useState<PageStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const insertChat = useInsertChat();
@@ -54,12 +54,13 @@ export default function PaymentSuccessPage() {
   /**
    * Create an anonymous user if no user ID was passed
    */
-  const createAnonymousUserIfNeeded = async (): Promise<string> => {
+  const createAnonymousUserIfNeeded = async (
+    userId: string | null
+  ): Promise<string> => {
     try {
       // If user_id was passed in URL, use that (assumes session managed by Supabase)
-      if (passedUserId) {
-        console.log("Using passed user ID from URL:", passedUserId);
-        return passedUserId;
+      if (userId) {
+        return userId;
       }
 
       // Check if there's an existing session first
@@ -69,8 +70,6 @@ export default function PaymentSuccessPage() {
         return sessionData.session.user.id;
       }
 
-      // Create a new anonymous user
-      console.log("Creating new anonymous user");
       const { data, error } = await supabase.auth.signInAnonymously();
 
       if (error || !data.user) {
@@ -98,7 +97,7 @@ export default function PaymentSuccessPage() {
       }
 
       // Create user if needed
-      const userId = await createAnonymousUserIfNeeded();
+      const userId = await createAnonymousUserIfNeeded(metadata.userId || null);
 
       // Only create records if we have the necessary data
       if (metadata?.imageUrl && metadata?.prompt) {

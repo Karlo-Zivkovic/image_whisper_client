@@ -54,9 +54,7 @@ async function createStripeCheckoutSession(
       },
     ],
     mode: "payment",
-    success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}${
-      userId ? `&user_id=${userId}` : ""
-    }`,
+    success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}`,
     metadata: {
       imageId,
