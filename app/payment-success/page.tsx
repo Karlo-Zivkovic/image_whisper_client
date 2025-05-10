@@ -5,18 +5,14 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { supabase } from "@/lib/utils/supabase/client";
 import { useInsertChat } from "@/lib/hooks/useInsertChat";
 import { useInsertRequest } from "@/lib/hooks/useInsertRequest";
+import { useGetSessionMetadata } from "@/lib/hooks/useGetSessionMetadata";
+import { useUpdateSessionMetadata } from "@/lib/hooks/useUpdateSessionMetadata";
+import { useRegisterSharedSession } from "@/lib/hooks/useRegisterSharedSession";
 
 type PageStatus = "loading" | "success" | "error";
-
-interface SessionMetadata {
-  imagesUrl?: string[];
-  prompt?: string;
-  userId?: string;
-}
 
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
@@ -25,30 +21,13 @@ export default function PaymentSuccessPage() {
   const [error, setError] = useState<string | null>(null);
   const insertChat = useInsertChat();
   const insertRequest = useInsertRequest();
-
-  /**
-   * Fetch Stripe session metadata from our API
-   */
-  const fetchSessionMetadata = async (
-    sessionId: string
-  ): Promise<SessionMetadata> => {
-    try {
-      const response = await fetch(
-        `/api/get-session-metadata?session_id=${sessionId}`
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch session metadata");
-      }
-
-      const data = await response.json();
-
-      return data.metadata || {};
-    } catch (error) {
-      console.error("Error fetching session metadata:", error);
-      return {};
-    }
-  };
+  const registerSharedSession = useRegisterSharedSession();
+  const {
+    data: metadata,
+    isLoading: isLoadingMetadata,
+    error: metadataError,
+  } = useGetSessionMetadata(sessionId);
+  const updateSessionMetadata = useUpdateSessionMetadata();
 
   /**
    * Create an anonymous user if no user ID was passed
@@ -87,7 +66,12 @@ export default function PaymentSuccessPage() {
   /**
    * Setup user with chat and request records
    */
-  const setupUserAndRecords = async (metadata: SessionMetadata) => {
+  const setupUserAndRecords = async () => {
+    if (!metadata || !sessionId) {
+      console.warn("No metadata or sessionId available");
+      return false;
+    }
+
     try {
       // Make sure we have the required data
       if (!metadata?.imagesUrl || !metadata?.prompt) {
@@ -112,12 +96,38 @@ export default function PaymentSuccessPage() {
           updated_at: new Date().toISOString(),
         });
 
+        // Update session metadata with chat ID and user ID
+        if (!metadata.userId || !metadata.chatId) {
+          try {
+            await updateSessionMetadata.mutateAsync({
+              sessionId,
+              userId,
+              chatId: chatData.id,
+            });
+          } catch (updateError) {
+            console.error("Failed to update session metadata:", updateError);
+            // Continue anyway - the main records are already created
+          }
+        }
+
         // Create request record
         await insertRequest.mutateAsync({
           chat_id: chatData.id,
           image_url: metadata.imagesUrl,
           prompt: metadata.prompt,
         });
+
+        // Register the shared session immediately for later access
+        // This ensures the session is always accessible via the shared link
+        try {
+          await registerSharedSession.mutateAsync({
+            sessionId,
+            chatId: chatData.id,
+          });
+        } catch (registerError) {
+          console.error("Failed to register shared session:", registerError);
+          // Continue anyway - this is not critical for the user at this stage
+        }
       } else {
         console.log(
           "User created but no records were created due to missing metadata"
@@ -140,33 +150,46 @@ export default function PaymentSuccessPage() {
       return;
     }
 
-    const processSuccess = async () => {
-      try {
-        // Fetch the session metadata first
-        const metadata = await fetchSessionMetadata(sessionId);
+    // When metadata is loaded and not in error state, process the setup
+    if (!isLoadingMetadata && metadata && !metadataError) {
+      const processSuccess = async () => {
+        try {
+          // Setup user and records using the metadata
+          await setupUserAndRecords();
+          setStatus("success");
+        } catch (err) {
+          console.error("Error processing payment success:", err);
+          // Since we're on the success page, we'll still show success
+          setStatus("success");
+        }
+      };
 
-        // Setup user and records using the metadata
-        await setupUserAndRecords(metadata);
-        setStatus("success");
-      } catch (err) {
-        console.error("Error processing payment success:", err);
-        // Since we're on the success page, we'll still show success
-        setStatus("success");
-      }
-    };
+      processSuccess();
+    } else if (metadataError) {
+      console.error("Error fetching session metadata:", metadataError);
+      setStatus("error");
+      setError("Failed to load session details. Please try again.");
+    }
+  }, [sessionId, metadata, isLoadingMetadata, metadataError]);
 
-    processSuccess();
-  }, [sessionId]);
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-secondary/5 p-4">
-      <Card className="max-w-lg w-full p-8">
-        {status === "loading" ? (
+  // Show loading state while either explicitly in loading state or while metadata is loading
+  if (status === "loading" || isLoadingMetadata) {
+    return (
+      <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
           <div className="text-center py-8">
             <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-xl font-medium">Setting up your account...</p>
+            <p className="text-xl font-medium">Setting up your request...</p>
           </div>
-        ) : status === "error" ? (
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
           <div className="text-center py-8">
             <div className="text-red-500">
               <AlertCircle className="w-16 h-16 mx-auto mb-4" />
@@ -177,32 +200,33 @@ export default function PaymentSuccessPage() {
               <Link href="/">Return Home</Link>
             </Button>
           </div>
-        ) : (
-          <div className="text-center py-8">
-            <div className="text-primary">
-              <CheckCircle className="w-16 h-16 mx-auto mb-4" />
-            </div>
-            <h1 className="text-2xl font-bold mb-4">Payment Successful!</h1>
-            <p className="mb-6 text-muted-foreground">
-              Thank you for your purchase. Your image is now being processed and
-              will be ready soon.
-            </p>
-            {sessionId && (
-              <div className="text-xs text-muted-foreground mb-6">
-                Transaction ID: {sessionId}
-              </div>
-            )}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button asChild>
-                <Link href="/">Create Another</Link>
-              </Button>
-              <Button variant="outline" asChild>
-                <Link href="/dashboard">View My Images</Link>
-              </Button>
-            </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
+      <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+        <div className="text-center py-8">
+          <div className="text-green-500">
+            <CheckCircle className="w-16 h-16 mx-auto mb-4" />
           </div>
-        )}
-      </Card>
+          <h1 className="text-2xl font-bold mb-4">Payment Successful!</h1>
+          <p className="mb-6 text-muted-foreground">
+            Your payment has been processed. Your images are now being
+            transformed.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Button asChild variant="outline">
+              <Link href="/">Create Another Request</Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/sessions/${sessionId}`}>View Order Details</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

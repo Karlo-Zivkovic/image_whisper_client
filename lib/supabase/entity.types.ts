@@ -5,4 +5,3 @@ export type Chat = Tables<"chats">;
 export type Request = Tables<"requests">;
 export type Response = Tables<"responses">;
 export type Template = Tables<"templates">;
-export type PaymentSession = Tables<"payment_sessions">;

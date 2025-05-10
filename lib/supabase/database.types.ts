@@ -118,6 +118,35 @@ export type Database = {
           },
         ]
       }
+      shared_sessions: {
+        Row: {
+          chat_id: number
+          created_at: string
+          id: number
+          session_id: string
+        }
+        Insert: {
+          chat_id: number
+          created_at?: string
+          id?: number
+          session_id: string
+        }
+        Update: {
+          chat_id?: number
+          created_at?: string
+          id?: number
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_sessions_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       templates: {
         Row: {
           created_at: string
