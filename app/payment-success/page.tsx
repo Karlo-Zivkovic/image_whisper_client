@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle, AlertCircle } from "lucide-react";
@@ -10,9 +10,8 @@ import { useInsertChat } from "@/lib/hooks/useInsertChat";
 import { useInsertRequest } from "@/lib/hooks/useInsertRequest";
 import { useGetSessionMetadata } from "@/lib/hooks/useGetSessionMetadata";
 import { useUpdateSessionMetadata } from "@/lib/hooks/useUpdateSessionMetadata";
-import { useRegisterSharedSession } from "@/lib/hooks/useRegisterSharedSession";
 
-type PageStatus = "loading" | "success" | "error";
+type PageStatus = "loading" | "processing" | "success" | "error";
 
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
@@ -21,13 +20,15 @@ export default function PaymentSuccessPage() {
   const [error, setError] = useState<string | null>(null);
   const insertChat = useInsertChat();
   const insertRequest = useInsertRequest();
-  const registerSharedSession = useRegisterSharedSession();
   const {
     data: metadata,
     isLoading: isLoadingMetadata,
     error: metadataError,
   } = useGetSessionMetadata(sessionId);
   const updateSessionMetadata = useUpdateSessionMetadata();
+
+  // Use a ref to track if we've already processed this session
+  const processedRef = useRef(false);
 
   /**
    * Create an anonymous user if no user ID was passed
@@ -70,6 +71,12 @@ export default function PaymentSuccessPage() {
     if (!metadata || !sessionId) {
       console.warn("No metadata or sessionId available");
       return false;
+    }
+
+    // Skip if metadata already contains a chatId - records already created
+    if (metadata.chatId) {
+      console.log("Records already exist for this session, skipping setup");
+      return true;
     }
 
     try {
@@ -116,18 +123,6 @@ export default function PaymentSuccessPage() {
           image_url: metadata.imagesUrl,
           prompt: metadata.prompt,
         });
-
-        // Register the shared session immediately for later access
-        // This ensures the session is always accessible via the shared link
-        try {
-          await registerSharedSession.mutateAsync({
-            sessionId,
-            chatId: chatData.id,
-          });
-        } catch (registerError) {
-          console.error("Failed to register shared session:", registerError);
-          // Continue anyway - this is not critical for the user at this stage
-        }
       } else {
         console.log(
           "User created but no records were created due to missing metadata"
@@ -151,15 +146,34 @@ export default function PaymentSuccessPage() {
     }
 
     // When metadata is loaded and not in error state, process the setup
-    if (!isLoadingMetadata && metadata && !metadataError) {
+    if (
+      !isLoadingMetadata &&
+      metadata &&
+      !metadataError &&
+      !processedRef.current
+    ) {
+      // Mark as processing to prevent duplicate processing
+      setStatus("processing");
+
       const processSuccess = async () => {
         try {
+          // Skip processing if we've already done it
+          if (processedRef.current) {
+            console.log("Already processed this session, skipping");
+            setStatus("success");
+            return;
+          }
+
           // Setup user and records using the metadata
           await setupUserAndRecords();
+
+          // Mark as processed so we don't do it again
+          processedRef.current = true;
           setStatus("success");
         } catch (err) {
           console.error("Error processing payment success:", err);
           // Since we're on the success page, we'll still show success
+          processedRef.current = true;
           setStatus("success");
         }
       };
@@ -173,10 +187,10 @@ export default function PaymentSuccessPage() {
   }, [sessionId, metadata, isLoadingMetadata, metadataError]);
 
   // Show loading state while either explicitly in loading state or while metadata is loading
-  if (status === "loading" || isLoadingMetadata) {
+  if (status === "loading" || status === "processing" || isLoadingMetadata) {
     return (
-      <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
-        <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+      <div className="min-h-screen flex items-center justify-center bg-secondary/5 p-4 md:p-8">
+        <div className="max-w-4xl w-full mx-auto bg-white rounded-lg shadow-md p-8">
           <div className="text-center py-8">
             <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-xl font-medium">Setting up your request...</p>
@@ -188,8 +202,8 @@ export default function PaymentSuccessPage() {
 
   if (status === "error") {
     return (
-      <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
-        <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+      <div className="min-h-screen flex items-center justify-center bg-secondary/5 p-4 md:p-8">
+        <div className="max-w-4xl w-full mx-auto bg-white rounded-lg shadow-md p-8">
           <div className="text-center py-8">
             <div className="text-red-500">
               <AlertCircle className="w-16 h-16 mx-auto mb-4" />
@@ -206,8 +220,8 @@ export default function PaymentSuccessPage() {
   }
 
   return (
-    <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+    <div className="min-h-screen flex items-center justify-center bg-secondary/5 p-4 md:p-8">
+      <div className="max-w-4xl w-full mx-auto bg-white rounded-lg shadow-md p-8">
         <div className="text-center py-8">
           <div className="text-green-500">
             <CheckCircle className="w-16 h-16 mx-auto mb-4" />

@@ -17,21 +17,35 @@ export function useGetResponse(chatId: number | null, sessionId?: string) {
       // Use client with sessionId header if provided, otherwise use standard client
       const client = sessionId ? createClientWithSession(sessionId) : supabase;
 
-      const { data, error } = await client
-        .from("responses")
-        .select("*")
-        .eq("chat_id", chatId)
-        .single();
+      try {
+        const { data, error } = await client
+          .from("responses")
+          .select("*")
+          .eq("chat_id", chatId)
+          .single();
 
-      if (error) {
-        console.error("Error fetching response:", error);
-        return null;
+        if (error) {
+          // Check if this is a "no rows" error which can happen when data isn't yet available
+          if (error.code === "PGRST116") {
+            console.log("No response data found yet for chat_id:", chatId);
+            return null;
+          }
+
+          // Otherwise it's a more serious error
+          console.error("Error fetching response:", error);
+          throw error;
+        }
+
+        return data as Response;
+      } catch (err) {
+        console.error("Error in useGetResponse:", err);
+        throw err;
       }
-
-      return data as Response;
     },
-    // Enable polling to check for updates every 30 seconds
-    // refetchInterval: 30000,
+    // Enable polling to check for updates every 10 seconds
+    // refetchInterval: 10000,
+    // Don't refetch on window focus to avoid too many requests
+    refetchOnWindowFocus: false,
     // Only run the query if we have a chatId
     enabled: !!chatId,
   });

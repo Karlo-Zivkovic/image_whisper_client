@@ -7,45 +7,42 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  Mail,
   ArrowLeft,
   Download,
   Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import Image from "next/image";
 import { toast } from "sonner";
-import { useGetRequest } from "@/lib/hooks/useGetRequest";
-import { useGetResponse } from "@/lib/hooks/useGetResponse";
 import { useGetSessionMetadata } from "@/lib/hooks/useGetSessionMetadata";
+import { useSessionData } from "@/lib/hooks/useSessionData";
 
 export default function SessionDetailPage() {
   const params = useParams();
   const sessionId = params.id as string;
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // Use hooks for data fetching in sequence
+  // Use hook for metadata fetching
   const {
     data: metadata,
     isLoading: isLoadingMetadata,
     error: metadataError,
   } = useGetSessionMetadata(sessionId);
 
-  // Get chat ID from metadata
+  // Parse chatId as a number if it exists
   const chatId = metadata?.chatId ? parseInt(metadata.chatId, 10) : null;
 
-  // Use hooks to get request and response data based on chatId
-  // Pass the sessionId to enable access through shared_sessions RLS policy
   const {
-    data: requestData,
-    isLoading: isLoadingRequest,
-    error: requestError,
-  } = useGetRequest(chatId, sessionId);
+    data: sessionData,
+    isLoading: isLoadingSessionData,
+    error: sessionDataError,
+    refetch: refetchSessionData,
+  } = useSessionData(chatId);
 
-  const { data: responseData } = useGetResponse(chatId, sessionId);
+  // Extract request and response from session data
+  const requestData = sessionData?.request || null;
+  const responseData = sessionData?.response || null;
 
   const copyLinkToClipboard = () => {
     if (typeof window !== "undefined") {
@@ -80,7 +77,7 @@ export default function SessionDetailPage() {
   };
 
   // Loading state
-  if (isLoadingMetadata || isLoadingRequest) {
+  if (isLoadingMetadata || isLoadingSessionData) {
     return (
       <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
         <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
@@ -96,7 +93,7 @@ export default function SessionDetailPage() {
   }
 
   // Error state
-  if (metadataError || requestError) {
+  if (metadataError || sessionDataError) {
     return (
       <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
         <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
@@ -106,9 +103,15 @@ export default function SessionDetailPage() {
             </div>
             <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>
             <p className="mb-6 text-muted-foreground">
-              {requestError?.toString() ||
-                metadataError?.toString() ||
-                "Failed to load transformation details"}
+              {metadataError
+                ? `Metadata error: ${
+                    metadataError.message || metadataError.toString()
+                  }`
+                : sessionDataError
+                ? `Data error: ${
+                    sessionDataError.message || sessionDataError.toString()
+                  }`
+                : "Failed to load transformation details"}
             </p>
             <Button asChild>
               <Link href="/">Return Home</Link>
@@ -120,7 +123,7 @@ export default function SessionDetailPage() {
   }
 
   // No metadata or chatId
-  if (!metadata || !chatId) {
+  if (!metadata || !metadata.chatId) {
     return (
       <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
         <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
@@ -141,243 +144,254 @@ export default function SessionDetailPage() {
     );
   }
 
-  // Get source images from request data or metadata
-  const sourceImages =
-    requestData?.image_url ||
-    (metadata.imagesUrl && Array.isArray(metadata.imagesUrl)
-      ? metadata.imagesUrl
-      : Object.entries(metadata)
-          .filter(([key]) => key.startsWith("imageUrl_"))
-          .map(([, value]) => value as string));
-
-  return (
-    <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between">
-            <div className="flex items-center mb-4 sm:mb-0">
-              <div className="bg-green-100 p-3 rounded-full mr-4">
-                <CheckCircle className="h-6 w-6 text-green-600" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">AI Image Transformation</h1>
-                <p className="text-muted-foreground">
-                  <span className="font-medium">Order ID:</span>{" "}
-                  {sessionId.slice(0, 10)}...
-                </p>
-              </div>
+  // No request data available yet
+  if (!requestData) {
+    return (
+      <div className="min-h-screen bg-secondary/5 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+          <div className="text-center py-8">
+            <div className="text-yellow-500">
+              <Clock className="w-16 h-16 mx-auto mb-4" />
             </div>
-            <div>
-              <Badge
+            <h1 className="text-2xl font-bold mb-4">Processing Request</h1>
+            <p className="mb-6 text-muted-foreground">
+              Your transformation request is being processed. Please check back
+              later.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Button
                 variant="outline"
-                className={`flex items-center gap-1.5 ${
-                  responseData
-                    ? "bg-green-50 text-green-700 border-green-200"
-                    : "bg-yellow-50 text-yellow-700 border-yellow-200"
-                }`}
+                onClick={() => refetchSessionData()}
+                className="flex items-center gap-2"
               >
-                {responseData ? (
-                  <>
-                    <CheckCircle className="h-3.5 w-3.5" />
-                    Completed
-                  </>
-                ) : (
-                  <>
-                    <Clock className="h-3.5 w-3.5" />
-                    Processing
-                  </>
-                )}
-              </Badge>
+                <ArrowLeft className="h-4 w-4 rotate-45" />
+                Refresh
+              </Button>
+              <Button asChild>
+                <Link href="/dashboard">View All Transformations</Link>
+              </Button>
             </div>
           </div>
         </div>
+      </div>
+    );
+  }
 
-        {/* Prompt Card */}
-        <Card className="p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Transformation Prompt</h2>
-          <Separator className="mb-4" />
-          <div className="bg-secondary/10 rounded-md p-4 mb-4">
-            <p className="italic">{metadata.prompt || requestData?.prompt}</p>
+  // Get source images only from request data
+  const sourceImages = requestData.image_url || [];
+
+  return (
+    <div className="min-h-screen bg-zinc-50">
+      {/* Minimal header with status badge */}
+      <header className="bg-white border-b px-4 py-2 sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <h1 className="text-sm font-medium">
+              Transformation{" "}
+              <span className="text-zinc-500">{sessionId.slice(0, 8)}</span>
+            </h1>
           </div>
-          {requestData && (
-            <div className="text-sm text-muted-foreground">
-              Requested on: {new Date(requestData.created_at).toLocaleString()}
+
+          <div className="flex items-center gap-3">
+            <Badge
+              variant="outline"
+              className={`h-6 px-2 text-xs ${
+                responseData
+                  ? "bg-green-50 text-green-600 border-green-200"
+                  : "bg-amber-50 text-amber-600 border-amber-200"
+              }`}
+            >
+              {responseData ? "Completed" : "Processing"}
+            </Badge>
+
+            <div className="flex gap-2">
+              <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+                <Link href="/dashboard">All Transformations</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+                <Link href="/">New</Link>
+              </Button>
             </div>
-          )}
-        </Card>
+          </div>
+        </div>
+      </header>
 
-        {/* Before & After Images */}
-        <Card className="p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Before & After</h2>
-          <Separator className="mb-6" />
+      {responseData &&
+      responseData.image_url &&
+      responseData.image_url.length > 0 ? (
+        <main className="max-w-6xl mx-auto p-4">
+          {/* Small info bar with prompt and time */}
+          <div className="bg-white border rounded-md p-3 mb-4 flex flex-wrap gap-4 items-center text-xs">
+            <div className="flex-1 min-w-[200px]">
+              <span className="font-medium text-zinc-500 mr-2">Prompt:</span>
+              <span className="italic">
+                {requestData?.prompt || "No prompt available"}
+              </span>
+            </div>
+            {requestData && (
+              <div className="text-zinc-500 whitespace-nowrap">
+                Processed: {new Date(requestData.created_at).toLocaleString()}
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              onClick={copyLinkToClipboard}
+            >
+              <Share2 className="h-3.5 w-3.5 mr-1" />
+              {copySuccess ? "Copied" : "Share"}
+            </Button>
+          </div>
 
-          {responseData &&
-          responseData.image_url &&
-          responseData.image_url.length > 0 ? (
-            <div>
-              {/* Show before/after pairs for each image */}
-              {sourceImages.map((sourceUrl, index) => {
-                const resultUrl = responseData.image_url[index];
+          {/* Image pairs in cards */}
+          <div className="grid gap-4">
+            {sourceImages.map((sourceUrl: string, index: number) => {
+              const resultUrl = responseData.image_url[index];
+              if (!resultUrl) return null;
 
-                // Only show pairs where we have both source and result
-                if (!resultUrl) return null;
+              return (
+                <div
+                  key={index}
+                  className="bg-white border rounded-md overflow-hidden"
+                >
+                  <div className="border-b p-2 px-3 flex justify-between items-center">
+                    <h3 className="text-sm font-medium">Image {index + 1}</h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => downloadImage(resultUrl, index)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
 
-                return (
-                  <div key={index} className="mb-8">
-                    <h3 className="text-lg font-medium mb-4">
-                      Image {index + 1}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Before Image */}
-                      <div className="space-y-2">
-                        <Badge variant="outline" className="mb-2">
-                          Before
-                        </Badge>
-                        <div className="border rounded-md overflow-hidden">
-                          <div className="relative">
-                            <Image
-                              src={sourceUrl}
-                              alt={`Source image ${index + 1}`}
-                              width={500}
-                              height={400}
-                              className="w-full h-64 object-cover"
-                            />
-                          </div>
-                        </div>
+                  <div className="grid grid-cols-2">
+                    {/* Before image */}
+                    <div className="relative border-r">
+                      <Badge
+                        variant="secondary"
+                        className="absolute top-2 left-2 text-xs z-10"
+                      >
+                        Before
+                      </Badge>
+                      <div className="aspect-video w-full flex items-center justify-center">
+                        <Image
+                          src={sourceUrl}
+                          alt={`Original image ${index + 1}`}
+                          width={600}
+                          height={400}
+                          className="max-h-full max-w-full object-contain"
+                        />
                       </div>
+                    </div>
 
-                      {/* After Image */}
-                      <div className="space-y-2">
-                        <Badge
-                          variant="outline"
-                          className="bg-green-50 text-green-700 border-green-200 mb-2"
-                        >
-                          After
-                        </Badge>
-                        <div className="border rounded-md overflow-hidden">
-                          <div className="relative group">
-                            <Image
-                              src={resultUrl}
-                              alt={`Transformed image ${index + 1}`}
-                              width={500}
-                              height={400}
-                              className="w-full h-64 object-cover"
-                            />
-                            <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <Button
-                                variant="default"
-                                size="sm"
-                                className="flex items-center gap-2"
-                                onClick={() => downloadImage(resultUrl, index)}
-                              >
-                                <Download className="h-4 w-4" />
-                                Download
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
+                    {/* After image */}
+                    <div className="relative">
+                      <Badge className="absolute top-2 left-2 text-xs z-10 bg-green-100 text-green-800 border-green-200">
+                        After
+                      </Badge>
+                      <div className="aspect-video w-full flex items-center justify-center">
+                        <Image
+                          src={resultUrl}
+                          alt={`Transformed image ${index + 1}`}
+                          width={600}
+                          height={400}
+                          className="max-h-full max-w-full object-contain"
+                        />
                       </div>
                     </div>
                   </div>
-                );
-              })}
-
-              <div className="mt-6 text-right">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center gap-2"
-                  onClick={copyLinkToClipboard}
-                >
-                  <Share2 className="h-4 w-4" />
-                  {copySuccess ? "Copied!" : "Share this transformation"}
-                </Button>
-              </div>
+                </div>
+              );
+            })}
+          </div>
+        </main>
+      ) : !requestData ? (
+        // Loading state
+        <div className="h-[90vh] flex items-center justify-center">
+          <div className="text-center p-6 max-w-md">
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-sm font-medium">
+              Loading transformation data...
+            </p>
+          </div>
+        </div>
+      ) : (
+        // Processing state
+        <main className="max-w-6xl mx-auto p-4">
+          {/* Info bar with prompt */}
+          <div className="bg-white border rounded-md p-3 mb-4 flex flex-wrap gap-4 items-center text-xs">
+            <div className="flex-1 min-w-[200px]">
+              <span className="font-medium text-zinc-500 mr-2">Prompt:</span>
+              <span className="italic">
+                {requestData.prompt || "No prompt available"}
+              </span>
             </div>
-          ) : (
-            // Processing - No Results Yet
-            <div className="text-center py-12 bg-secondary/5 rounded-lg border border-dashed border-gray-300">
-              <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-xl font-medium mb-2">
-                Your images are being transformed
-              </h3>
-              <p className="text-muted-foreground max-w-md mx-auto mb-6">
-                Our AI is working on your transformation. This process may take
-                up to 24 hours. You&apos;ll receive an email when your results
-                are ready.
-              </p>
+            {requestData && (
+              <div className="text-zinc-500 whitespace-nowrap">
+                Requested: {new Date(requestData.created_at).toLocaleString()}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                onClick={copyLinkToClipboard}
+              >
+                <Share2 className="h-3.5 w-3.5 mr-1" />
+                {copySuccess ? "Copied" : "Share"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                onClick={() => refetchSessionData()}
+              >
+                <ArrowLeft className="h-3.5 w-3.5 mr-1 rotate-45" />
+                Refresh
+              </Button>
+            </div>
+          </div>
 
-              {/* Preview of source images */}
-              <div className="my-8">
-                <h4 className="text-md font-medium mb-4">Your Source Images</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-3xl mx-auto">
-                  {sourceImages.map((imageUrl, index) => (
-                    <div
-                      key={index}
-                      className="border rounded-md overflow-hidden"
-                    >
+          {/* Status message */}
+          <div className="bg-white border rounded-md p-6 text-center mb-4">
+            <Clock className="h-8 w-8 text-amber-500 mx-auto mb-3" />
+            <h2 className="text-base font-medium mb-2">
+              Processing Your Images
+            </h2>
+            <p className="text-sm text-zinc-600 mb-0 max-w-md mx-auto">
+              Your transformation is in progress. You&apos;ll receive an email
+              when complete.
+            </p>
+          </div>
+
+          {/* Source images */}
+          {sourceImages.length > 0 && (
+            <div className="bg-white border rounded-md p-4">
+              <h3 className="text-sm font-medium mb-3">Source Images</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {sourceImages.map((imageUrl: string, index: number) => (
+                  <div key={index} className="border rounded overflow-hidden">
+                    <div className="aspect-video flex items-center justify-center bg-zinc-50">
                       <Image
                         src={imageUrl}
                         alt={`Source image ${index + 1}`}
-                        width={200}
-                        height={150}
-                        className="w-full h-40 object-cover"
+                        width={300}
+                        height={200}
+                        className="max-h-full max-w-full object-contain"
                       />
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center gap-2"
-                  onClick={copyLinkToClipboard}
-                >
-                  <Share2 className="h-4 w-4" />
-                  {copySuccess ? "Copied!" : "Bookmark or share this page"}
-                </Button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
-        </Card>
-
-        {/* Info Card - Only show if no response yet */}
-        {!responseData && (
-          <Card className="p-6 mb-6">
-            <div className="flex items-start gap-4">
-              <div className="bg-blue-100 p-3 rounded-full">
-                <Mail className="h-6 w-6 text-blue-600" />
-              </div>
-              <div>
-                <h3 className="font-medium mb-1">
-                  We&apos;ll notify you when your transformation is ready
-                </h3>
-                <p className="text-muted-foreground text-sm">
-                  This page will automatically update when your results are
-                  ready. You can bookmark it or come back later. We&apos;ll also
-                  send you an email notification.
-                </p>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8">
-          <Button asChild variant="outline" className="flex items-center gap-2">
-            <Link href="/">
-              <ArrowLeft className="h-4 w-4" />
-              Create Another Transformation
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link href="/dashboard">View All Transformations</Link>
-          </Button>
-        </div>
-      </div>
+        </main>
+      )}
     </div>
   );
 }
