@@ -9,7 +9,7 @@ import {
   UploadSection,
 } from "@/lib/components/home";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/utils/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 
 interface SessionMetadata {
   imageUrl?: string;

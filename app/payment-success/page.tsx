@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/utils/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { useInsertChat } from "@/lib/hooks/useInsertChat";
 import { useInsertRequest } from "@/lib/hooks/useInsertRequest";
 import { useGetSessionMetadata } from "@/lib/hooks/useGetSessionMetadata";

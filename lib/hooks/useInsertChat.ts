@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/lib/utils/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { Chat } from "../supabase/entity.types";
 
 export function useInsertChat() {
